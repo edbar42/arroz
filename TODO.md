@@ -1,2 +1,0 @@
-- Mix and match the current files into a single package list
-- Check with desktop packages to ensure the list is complete
