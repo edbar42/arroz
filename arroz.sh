@@ -4,6 +4,7 @@ set -e
 
 # Common place variables for the script
 BASE_PACKAGES="$HOME/.local/share/chezmoi/base_packages.list"
+BLOAT_LIST="$HOME/.local/share/chezmoi/bloat.list"
 FIRST_RUN_FILE="$HOME/.config/arroz/first_run"
 FIRST_RUN=$([ ! -f "$FIRST_RUN_FILE" ] && echo true || echo false)
 GH_USER="edbar42" # GIthub user for dotfiles repo
@@ -42,11 +43,9 @@ if $FIRST_RUN || [ "$1" == "dotfiles" ]; then
   bash ~/.bin/remap
 fi
 
-if $FIRST_RUN || [ "$1" == "dotfiles" ]; then
+if $FIRST_RUN || [ "$1" == "shell" ]; then
   echo "Switching shells to zsh..."
   sudo pacman -Sy zsh
-
-  echo "Adding keyd remapping..."
   chsh -s /bin/zsh $LOCAL_USER
   chsh /bin/zsh $LOCAL_USER
 fi
@@ -55,7 +54,31 @@ if $FIRST_RUN || [ "$1" == "install" ]; then
   echo "Installing base packages..."
   yay -S --needed $(cat $BASE_PACKAGES)
 fi
-#
+
+if [ "$1" == "debloat" ]; then
+  if [[ ! -f $BLOAT_LIST ]]; then
+    echo "Error: bloat.list not found at $BLOAT_LIST"
+    exit 1
+  fi
+  
+  echo "Checking for bloat packages..."
+  installed_bloat=()
+  
+  while IFS= read -r pkg; do
+    if yay -Qq "$pkg" &>/dev/null; then
+      installed_bloat+=("$pkg")
+    fi
+  done < "$BLOAT_LIST"
+  
+  if [[ ${#installed_bloat[@]} -eq 0 ]]; then
+    echo "No bloat found."
+  else
+    echo "Removing bloat packages: ${installed_bloat[*]}"
+    yay -Rns "${installed_bloat[@]}"
+    echo "Debloat complete!"
+  fi
+fi
+
 # Create first run file if it does not exist
 # if [[ ! -f $FIRST_RUN ]]; then
 #   mkdir -p ~/.config/arroz
