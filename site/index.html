@@ -7,13 +7,20 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #12110d;
-        --panel: rgba(34, 28, 18, 0.92);
-        --text: #f6f1df;
-        --muted: #d2c6a2;
-        --accent: #d69d3f;
-        --accent-2: #8bbf7a;
-        --border: rgba(246, 241, 223, 0.14);
+        --bg: #282c34;
+        --bg-elevated: #2f343f;
+        --panel: rgba(40, 44, 52, 0.92);
+        --panel-strong: rgba(33, 37, 43, 0.96);
+        --text: #abb2bf;
+        --muted: #7f848e;
+        --accent: #61afef;
+        --accent-2: #98c379;
+        --accent-3: #e5c07b;
+        --accent-4: #c678dd;
+        --accent-5: #d19aee;
+        --text-bright: #f8f8f2;
+        --border: rgba(171, 178, 191, 0.14);
+        --shadow: rgba(0, 0, 0, 0.42);
       }
 
       * {
@@ -28,16 +35,16 @@
         padding: 2rem;
         background:
           radial-gradient(
-            circle at top,
-            rgba(214, 157, 63, 0.24),
-            transparent 30%
+            circle at top left,
+            rgba(97, 175, 239, 0.22),
+            transparent 32%
           ),
           radial-gradient(
             circle at bottom right,
-            rgba(139, 191, 122, 0.18),
-            transparent 28%
+            rgba(198, 120, 221, 0.16),
+            transparent 30%
           ),
-          linear-gradient(160deg, #090804, var(--bg));
+          linear-gradient(160deg, #1e222a, var(--bg));
         color: var(--text);
         font:
           16px/1.6 "Iosevka Term",
@@ -51,7 +58,8 @@
         border: 1px solid var(--border);
         border-radius: 18px;
         background: var(--panel);
-        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+        box-shadow: 0 24px 80px var(--shadow);
+        backdrop-filter: blur(14px);
       }
 
       h1 {
@@ -67,12 +75,8 @@
       }
 
       pre {
+        margin: 0;
         overflow-x: auto;
-        margin: 1.5rem 0;
-        padding: 1rem 1.25rem;
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        background: rgba(8, 8, 6, 0.78);
       }
 
       code {
@@ -80,16 +84,114 @@
       }
 
       a {
-        color: var(--accent-2);
+        color: var(--accent);
+      }
+
+      a:hover {
+        color: #8fc7f5;
       }
 
       .label {
         display: inline-block;
         margin-bottom: 0.75rem;
-        color: var(--accent);
+        color: var(--accent-4);
         text-transform: uppercase;
         letter-spacing: 0.14em;
         font-size: 0.82rem;
+      }
+
+      .intro {
+        color: var(--text-bright);
+      }
+
+      .command {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.75rem;
+        align-items: start;
+        margin: 1.5rem 0;
+        padding: 1rem;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background:
+          linear-gradient(135deg, rgba(97, 175, 239, 0.08), transparent 42%),
+          var(--panel-strong);
+      }
+
+      .command code {
+        display: block;
+        color: var(--accent-2);
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .copy-button {
+        display: inline-grid;
+        place-items: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--bg-elevated);
+        color: var(--accent-4);
+        cursor: pointer;
+        transition:
+          transform 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .copy-button:hover {
+        border-color: rgba(198, 120, 221, 0.45);
+        color: var(--accent-5);
+        transform: translateY(-1px);
+      }
+
+      .copy-button:focus-visible {
+        outline: 2px solid var(--accent-4);
+        outline-offset: 3px;
+      }
+
+      .copy-button[data-copied="true"] {
+        color: var(--accent-2);
+        border-color: rgba(152, 195, 121, 0.45);
+      }
+
+      .copy-button svg {
+        width: 1.15rem;
+        height: 1.15rem;
+      }
+
+      .copy-button .icon-check {
+        display: none;
+      }
+
+      .copy-button[data-copied="true"] .icon-copy {
+        display: none;
+      }
+
+      .copy-button[data-copied="true"] .icon-check {
+        display: block;
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 1rem;
+        }
+
+        main {
+          padding: 1.5rem;
+        }
+
+        .command {
+          grid-template-columns: 1fr;
+        }
+
+        .copy-button {
+          justify-self: end;
+        }
       }
     </style>
   </head>
@@ -97,19 +199,74 @@
     <main>
       <div class="label">Arch bootstrap</div>
       <h1>arroz</h1>
-      <p>
+      <p class="intro">
         This repository publishes its installer script to GitHub Pages so a
         fresh machine can bootstrap from a single command.
       </p>
-      <pre><code>curl -fsSL https://edbar42.github.io/arroz/arroz.sh | bash</code></pre>
-      <p>
-        Review the hosted script first if needed:
-        <a href="./arroz.sh">arroz.sh</a>
-      </p>
+      <div class="command">
+        <pre><code id="install-command">curl -fsSL https://edbar42.github.io/arroz/arroz.sh | bash</code></pre>
+        <button
+          class="copy-button"
+          type="button"
+          aria-label="Copy install command"
+          title="Copy install command"
+          data-copy-target="install-command"
+        >
+          <svg
+            class="icon-copy"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+            <path d="M5 15V6a2 2 0 0 1 2-2h9"></path>
+          </svg>
+          <svg
+            class="icon-check"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M20 6 9 17l-5-5"></path>
+          </svg>
+        </button>
+      </div>
       <p>
         Source repository:
         <a href="https://github.com/edbar42/arroz">github.com/edbar42/arroz</a>
       </p>
     </main>
+    <script>
+      const copyButton = document.querySelector(".copy-button");
+
+      if (copyButton) {
+        copyButton.addEventListener("click", async () => {
+          const targetId = copyButton.dataset.copyTarget;
+          const target = targetId ? document.getElementById(targetId) : null;
+
+          if (!target) {
+            return;
+          }
+
+          try {
+            await navigator.clipboard.writeText(target.textContent.trim());
+            copyButton.dataset.copied = "true";
+            window.setTimeout(() => {
+              copyButton.dataset.copied = "false";
+            }, 1600);
+          } catch (_error) {
+            copyButton.dataset.copied = "false";
+          }
+        });
+      }
+    </script>
   </body>
 </html>
