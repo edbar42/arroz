@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>arroz bootstrap</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #12110d;
+        --panel: rgba(34, 28, 18, 0.92);
+        --text: #f6f1df;
+        --muted: #d2c6a2;
+        --accent: #d69d3f;
+        --accent-2: #8bbf7a;
+        --border: rgba(246, 241, 223, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        background:
+          radial-gradient(
+            circle at top,
+            rgba(214, 157, 63, 0.24),
+            transparent 30%
+          ),
+          radial-gradient(
+            circle at bottom right,
+            rgba(139, 191, 122, 0.18),
+            transparent 28%
+          ),
+          linear-gradient(160deg, #090804, var(--bg));
+        color: var(--text);
+        font:
+          16px/1.6 "Iosevka Term",
+          "JetBrains Mono",
+          monospace;
+      }
+
+      main {
+        width: min(760px, 100%);
+        padding: 2rem;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--panel);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: clamp(2rem, 4vw, 3.5rem);
+        line-height: 1;
+        letter-spacing: -0.05em;
+      }
+
+      p {
+        margin: 0 0 1rem;
+        color: var(--muted);
+      }
+
+      pre {
+        overflow-x: auto;
+        margin: 1.5rem 0;
+        padding: 1rem 1.25rem;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: rgba(8, 8, 6, 0.78);
+      }
+
+      code {
+        color: var(--text);
+      }
+
+      a {
+        color: var(--accent-2);
+      }
+
+      .label {
+        display: inline-block;
+        margin-bottom: 0.75rem;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-size: 0.82rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="label">Arch bootstrap</div>
+      <h1>arroz</h1>
+      <p>
+        This repository publishes its installer script to GitHub Pages so a
+        fresh machine can bootstrap from a single command.
+      </p>
+      <pre><code>curl -fsSL https://edbar42.github.io/arroz/arroz.sh | bash</code></pre>
+      <p>
+        Review the hosted script first if needed:
+        <a href="./arroz.sh">arroz.sh</a>
+      </p>
+      <p>
+        Source repository:
+        <a href="https://github.com/edbar42/arroz">github.com/edbar42/arroz</a>
+      </p>
+    </main>
+  </body>
+</html>
