@@ -321,6 +321,64 @@ EOF
   fi
 }
 
+configure_background_renderer() {
+  # Omarchy's shell ships a first-party background service (omarchy.background,
+  # kinds: ["service"]) that reads ~/.local/state/omarchy/current/background and
+  # paints it as ONE opaque image across ALL monitors, on the same Wayland layer
+  # awww-daemon draws to. With awww in charge of per-monitor wallpapers, the two
+  # fight and awww loses.
+  #
+  # Deleting the symlink is not enough: omarchy-theme-set recreates it on every
+  # theme change (set_theme_background_link -> ln -nsf). Disabling the plugin is
+  # durable, because PluginRegistry.isEnabled() checks disabledPlugins[] BEFORE
+  # the first-party auto-enable, so the renderer stays unloaded whether or not
+  # the link exists.
+  local cfg="$HOME/.config/omarchy/shell.json"
+  local link="$HOME/.local/state/omarchy/current/background"
+  local plugin="omarchy.background"
+
+  if [[ ! -f $cfg ]]; then
+    warn "$cfg not found; skipping background renderer (run after the shell has started once)"
+    return
+  fi
+  cmd_present jq || die "jq is required to edit shell.json"
+
+  if jq -e --arg p "$plugin" '(.disabledPlugins // []) | index($p)' "$cfg" >/dev/null 2>&1; then
+    log "$plugin already disabled"
+  else
+    log "Disabling $plugin so awww owns the wallpaper layer"
+    local tmp
+    tmp=$(mktemp)
+    # Written through a temp file so an interrupted run can't leave a truncated
+    # shell.json, which the shell would fall back to defaults over.
+    if jq --arg p "$plugin" \
+         '.disabledPlugins = ((.disabledPlugins // []) + [$p] | unique)' \
+         "$cfg" >"$tmp"; then
+      mv "$tmp" "$cfg"
+    else
+      rm -f "$tmp"
+      die "failed to edit $cfg"
+    fi
+
+    warn "shell.json is chezmoi-managed — sync this back or the next apply reverts it:"
+    warn "  chezmoi re-add ~/.config/omarchy/shell.json"
+  fi
+
+  # Stale link from a previous theme-set. Harmless once the plugin is off, but
+  # omarchy-bar-text-color still reads it for transparent-bar contrast sampling.
+  if [[ -L $link || -e $link ]]; then
+    log "Removing background symlink $link"
+    rm -f "$link"
+  fi
+
+  # Takes effect immediately when the shell is up; otherwise it applies at next
+  # start, which on a fresh install is the first graphical login anyway.
+  if pgrep -x quickshell >/dev/null 2>&1 && cmd_present omarchy-plugin-disable; then
+    omarchy-plugin-disable "$plugin" >/dev/null 2>&1 ||
+      warn "could not disable $plugin over IPC; it will apply on next shell start"
+  fi
+}
+
 install_packages() {
   cmd_present yay || die "yay not found — the Omarchy ISO should have installed it"
 
@@ -514,6 +572,7 @@ ALL_PHASES=(
   configure_locale
   configure_keyd
   configure_nvme_apst
+  configure_background_renderer
   install_packages
   remove_omarchy_defaults
   configure_shell
