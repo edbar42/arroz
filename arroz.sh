@@ -1,16 +1,443 @@
 #!/usr/bin/env bash
+#
+# arroz — post-install setup for a machine installed with the Omarchy ISO.
+#
+# The ISO owns the parts worth not rewriting: disk layout, LUKS, btrfs
+# subvolumes, limine, UKI generation, snapper, and the hardware quirks under
+# install/hardware/. This script owns everything after that — the layer whose
+# defaults don't match how this machine is actually used.
+#
+# Idempotent. Safe to re-run; every phase checks before it acts.
+#
+#   curl -fsSL https://edbar42.github.io/arroz/arroz.sh | bash
+#
+# Phases can be run individually:
+#
+#   ./arroz.sh locale packages
+#
 set -euo pipefail
 
-trap 'printf "[arroz] setup failed on line %s\n" "${BASH_LINENO[0]}" >&2' ERR
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 
-log() {
-  printf '[arroz] %s\n' "$*"
+# English interface, Brazilian formats. This split is the entire reason this
+# phase exists: the Omarchy ISO configurator hardcodes sys_lang to en_US.UTF-8
+# and never asks, so a stock install has no way to express it.
+LANG_MAIN="en_US.UTF-8"
+LANG_FORMATS="pt_BR.UTF-8"
+LOCALES_TO_GENERATE=("$LANG_MAIN UTF-8" "$LANG_FORMATS UTF-8")
+
+TIMEZONE="America/Fortaleza"
+
+DOTFILES_REPO_SSH="git@github.com:edbar42/dotfiles"
+DOTFILES_REPO_HTTPS="https://github.com/edbar42/dotfiles"
+
+LOGIN_SHELL="/bin/zsh"
+
+# ---------------------------------------------------------------------------
+# Packages
+# ---------------------------------------------------------------------------
+#
+# Only what Omarchy does not already install. Base, hardware, boot and
+# snapshot packages come from the ISO and are deliberately absent here.
+# Installed with yay so AUR and repo packages resolve in one pass.
+
+PKGS_SHELL=(
+  zsh zsh-autocomplete zsh-autosuggestions zsh-completions
+  zsh-syntax-highlighting zsh-vi-mode
+  keychain
+  # starship is in quattro's omarchy-base.packages — already installed.
+)
+
+PKGS_TERMINAL=(
+  ghostty
+)
+
+PKGS_DESKTOP=(
+  # NOT quickshell: quattro ships quickshell-git, which declares
+  # `Conflicts With: quickshell`. The omarchy package depends on quickshell
+  # and quickshell-git provides it, so the shell is already there. Listing
+  # quickshell explicitly here fails the whole pacman transaction.
+  wofi              # walker is gone in quattro; this is the launcher
+  awww              # wallpaper daemon
+  nwg-look
+  python-pywal16
+  keyd              # capslock -> esc/meta, see configure_keyd
+)
+
+PKGS_CLI=(
+  yazi chafa duf procs git-delta oxker tuicr
+  7zip
+)
+
+PKGS_APPS=(
+  zen-browser-bin
+  keepassxc
+  mullvad-vpn
+  telegram-desktop
+  vesktop-bin
+  onlyoffice-bin
+  bruno-bin
+  flameshot
+  steam
+  syncthing
+  chezmoi
+)
+
+PKGS_DOCS=(
+  zathura zathura-pdf-mupdf zathura-cb zathura-djvu zathura-ps
+)
+
+PKGS_DEV=(
+  dotnet-sdk-10.0
+  azure-cli
+  googleworkspace-cli
+  # herdr is in quattro's omarchy-base.packages — already installed.
+)
+
+PKGS_FONTS=(
+  ttf-cascadia-code ttf-cascadia-code-nerd ttf-cascadia-mono-nerd
+  otf-cascadia-code woff2-cascadia-code
+)
+
+PACKAGES=(
+  "${PKGS_SHELL[@]}" "${PKGS_TERMINAL[@]}" "${PKGS_DESKTOP[@]}"
+  "${PKGS_CLI[@]}" "${PKGS_APPS[@]}" "${PKGS_DOCS[@]}"
+  "${PKGS_DEV[@]}" "${PKGS_FONTS[@]}"
+)
+
+# Omarchy ships these by default. They are applications, not infrastructure —
+# removing them does not touch hardware support, boot, or snapshots.
+#
+# Deliberately NOT removed: the omarchy and omarchy-settings packages
+# themselves. They carry install/hardware/, the limine and snapper config, and
+# the udev/systemd drop-ins. Removing them is what turns this into a distro
+# project instead of a setup script.
+# Verified against quattro's own install/omarchy-base.packages, not guessed.
+# Every entry below is confirmed present in that list, and none of them appear
+# in the omarchy package's depends=() array, so -Rns will not be blocked.
+#
+# Regenerate after an Omarchy release:
+#
+#   gh api 'repos/basecamp/omarchy/contents/install/omarchy-base.packages?ref=quattro' \
+#     --jq '.content' | base64 -d | grep -v '^#\|^$' | sort
+#
+# Notably absent from quattro, so NOT worth listing: waybar, mako, walker,
+# omarchy-walker, alacritty, spotify, typora, 1password, impala, bluetui,
+# wiremix, gnome-calculator. The quickshell rewrite dropped the bar,
+# notification daemon and launcher; the rest were retired earlier.
+OMARCHY_UNWANTED=(
+  omarchy-nvim                    # own neovim config via chezmoi
+  libreoffice-fresh               # onlyoffice
+  kdenlive pinta xournalpp evince
+  gnome-disk-utility sushi
+  lazygit lazydocker
+  localsend aether hyprsunset
+)
+
+# Omarchy's own small apps, plus its default terminal. Not removed by default.
+#
+# foot is what xdg-terminal-exec points at, and omarchy-* commands that open a
+# terminal go through it — remove foot without repointing xdg-terminal-exec at
+# ghostty first and those commands silently stop working. The omacom apps are
+# wired into the omarchy menu, so removing them leaves dead entries.
+#
+# Uncomment individually once you have confirmed the replacement works.
+OMARCHY_UNWANTED_RISKY=(
+  # foot
+  # omacalc omacut omawrite
+  # moonlight-qt
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+readonly ANSI_GREEN=$'\033[32m'
+readonly ANSI_YELLOW=$'\033[33m'
+readonly ANSI_RED=$'\033[31m'
+readonly ANSI_RESET=$'\033[0m'
+
+log()  { printf '%s==>%s %s\n' "$ANSI_GREEN" "$ANSI_RESET" "$*"; }
+warn() { printf '%sWarning:%s %s\n' "$ANSI_YELLOW" "$ANSI_RESET" "$*" >&2; }
+die()  { printf '%sError:%s %s\n' "$ANSI_RED" "$ANSI_RESET" "$*" >&2; exit 1; }
+
+trap 'die "failed on line ${BASH_LINENO[0]}: ${BASH_COMMAND}"' ERR
+
+pkg_installed() { pacman -Qq "$1" &>/dev/null; }
+cmd_present()   { command -v "$1" &>/dev/null; }
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+preflight() {
+  [[ -f /etc/arch-release ]] || die "not an Arch system"
+  (( EUID != 0 )) || die "run as your user, not root (sudo is called where needed)"
+  cmd_present sudo || die "sudo is required"
+
+  # Fail early rather than three minutes into a package transaction.
+  sudo -v || die "sudo authentication failed"
+
+  log "Preflight OK — $(uname -r), user $USER"
+}
+
+configure_locale() {
+  local locale changed=0
+
+  for locale in "${LOCALES_TO_GENERATE[@]}"; do
+    if ! grep -qxF "$locale" /etc/locale.gen 2>/dev/null; then
+      log "Enabling locale: $locale"
+      # Uncomment if present-but-commented, otherwise append.
+      if grep -qxF "#$locale" /etc/locale.gen 2>/dev/null; then
+        sudo sed -i "s/^#$locale$/$locale/" /etc/locale.gen
+      else
+        echo "$locale" | sudo tee -a /etc/locale.gen >/dev/null
+      fi
+      changed=1
+    fi
+  done
+
+  if (( changed )); then
+    log "Generating locales (this takes a moment)"
+    sudo locale-gen
+  else
+    log "Locales already generated"
+  fi
+
+  # LANG picks the interface language; the LC_* overrides pick date, number,
+  # currency and paper conventions. Splitting them is the whole point — an
+  # English desktop that still writes 16/08/2026 and R$ 1.234,56.
+  log "Writing /etc/locale.conf ($LANG_MAIN interface, $LANG_FORMATS formats)"
+  sudo tee /etc/locale.conf >/dev/null <<EOF
+LANG=$LANG_MAIN
+LC_TIME=$LANG_FORMATS
+LC_NUMERIC=$LANG_FORMATS
+LC_MONETARY=$LANG_FORMATS
+LC_PAPER=$LANG_FORMATS
+LC_MEASUREMENT=$LANG_FORMATS
+LC_ADDRESS=$LANG_FORMATS
+LC_TELEPHONE=$LANG_FORMATS
+LC_NAME=$LANG_FORMATS
+LC_IDENTIFICATION=$LANG_FORMATS
+EOF
+
+  if [[ $(timedatectl show -p Timezone --value) != "$TIMEZONE" ]]; then
+    log "Setting timezone to $TIMEZONE"
+    sudo timedatectl set-timezone "$TIMEZONE"
+  fi
+}
+
+configure_keyd() {
+  # System-level remap, so it applies at the TTY and the display manager too,
+  # not just inside the Hyprland session. chezmoi can't own this: it's /etc.
+  local conf=/etc/keyd/default.conf
+
+  if [[ -f $conf ]] && grep -q 'overload(meta, esc)' "$conf"; then
+    log "keyd already configured"
+    return
+  fi
+
+  log "Writing keyd config (capslock -> esc tapped / meta held)"
+  sudo mkdir -p /etc/keyd
+  sudo tee "$conf" >/dev/null <<'EOF'
+[ids]
+*
+
+[main]
+# esc when pressed, meta when held
+capslock = overload(meta, esc)
+
+# esc to capslock
+esc = capslock
+EOF
+}
+
+install_packages() {
+  cmd_present yay || die "yay not found — the Omarchy ISO should have installed it"
+
+  local pkg missing=()
+  for pkg in "${PACKAGES[@]}"; do
+    pkg_installed "$pkg" || missing+=("$pkg")
+  done
+
+  if (( ${#missing[@]} == 0 )); then
+    log "All ${#PACKAGES[@]} packages already installed"
+    return
+  fi
+
+  log "Installing ${#missing[@]} of ${#PACKAGES[@]} packages"
+  printf '    %s\n' "${missing[@]}"
+  yay -S --needed --noconfirm "${missing[@]}"
+}
+
+remove_omarchy_defaults() {
+  local pkg present=()
+  for pkg in "${OMARCHY_UNWANTED[@]}" "${OMARCHY_UNWANTED_RISKY[@]}"; do
+    pkg_installed "$pkg" && present+=("$pkg")
+  done
+
+  if (( ${#present[@]} == 0 )); then
+    log "No unwanted Omarchy defaults present"
+    return
+  fi
+
+  log "Removing ${#present[@]} unused Omarchy defaults"
+  printf '    %s\n' "${present[@]}"
+
+  # -Rns pulls unused dependencies too. Non-fatal: a package another thing
+  # legitimately depends on should stay, and that is not an error worth
+  # aborting the whole run over.
+  sudo pacman -Rns --noconfirm "${present[@]}" || {
+    warn "some packages could not be removed (likely still depended on); continuing"
+  }
+
+  # Omarchy generates chromium --app= launchers for its web apps. Nothing here
+  # uses them, and they clutter every launcher and menu.
+  local webapps
+  mapfile -t webapps < <(
+    grep -ls 'chromium.*--app=' ~/.local/share/applications/*.desktop 2>/dev/null || true
+  )
+  if (( ${#webapps[@]} > 0 )); then
+    log "Removing ${#webapps[@]} generated web app launchers"
+    rm -f "${webapps[@]}"
+    update-desktop-database ~/.local/share/applications 2>/dev/null || true
+  fi
+}
+
+configure_shell() {
+  local current
+  current=$(getent passwd "$USER" | cut -d: -f7)
+
+  if [[ $current == "$LOGIN_SHELL" ]]; then
+    log "Login shell already $LOGIN_SHELL"
+    return
+  fi
+
+  [[ -x $LOGIN_SHELL ]] || die "$LOGIN_SHELL not found — did the package phase run?"
+
+  log "Changing login shell to $LOGIN_SHELL"
+  chsh -s "$LOGIN_SHELL"
+}
+
+apply_dotfiles() {
+  cmd_present chezmoi || die "chezmoi not installed — did the package phase run?"
+
+  if [[ -d ~/.local/share/chezmoi/.git ]]; then
+    log "chezmoi already initialized; applying"
+    chezmoi apply
+    return
+  fi
+
+  # The remote is an SSH URL, which needs a key that a fresh machine does not
+  # have yet. Restore ~/.ssh from the backup drive first, or this falls back to
+  # HTTPS (fine for pulling, but pushing will need the key anyway).
+  local repo
+  if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 |
+       grep -q 'successfully authenticated'; then
+    repo="$DOTFILES_REPO_SSH"
+    log "GitHub SSH auth works; using $repo"
+  else
+    repo="$DOTFILES_REPO_HTTPS"
+    warn "no working GitHub SSH key — using HTTPS ($repo)"
+    warn "restore ~/.ssh from the backup drive, then: chezmoi git remote set-url origin $DOTFILES_REPO_SSH"
+  fi
+
+  log "Initializing dotfiles from $repo"
+  chezmoi init --apply "$repo"
+}
+
+enable_services() {
+  # Only services Omarchy does not already enable. Everything hardware, boot
+  # and snapshot related is already handled by the ISO.
+  local svc
+  for svc in keyd.service mullvad-daemon.service; do
+    if ! systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+      log "Enabling $svc"
+      sudo systemctl enable --now "$svc"
+    fi
+  done
+
+  # Syncthing is deliberately left disabled. It syncs ~/personal, and starting
+  # it before the dotfiles and backup drive are in place is how you get
+  # sync-conflict files instead of a restored machine.
+  if ! systemctl --user is-enabled --quiet syncthing.service 2>/dev/null; then
+    warn "syncthing not enabled — start it once ~/personal is restored:"
+    warn "  systemctl --user enable --now syncthing.service"
+  fi
+}
+
+finish() {
+  cat <<EOF
+
+$(log "arroz setup complete")
+
+  Locale     $LANG_MAIN interface / $LANG_FORMATS formats
+  Timezone   $TIMEZONE
+  Shell      $LOGIN_SHELL
+  Dotfiles   $(chezmoi source-path 2>/dev/null || echo 'not initialized')
+
+Remaining, by hand:
+
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+ALL_PHASES=(
+  configure_locale
+  configure_keyd
+  install_packages
+  remove_omarchy_defaults
+  configure_shell
+  apply_dotfiles
+  enable_services
+)
+
+usage() {
+  cat <<EOF
+Usage: arroz.sh [phase ...]
+
+With no arguments, runs every phase in order.
+
+Phases:
+$(printf '  %s\n' "${ALL_PHASES[@]}")
+
+Examples:
+  ./arroz.sh                    # everything
+  ./arroz.sh configure_locale   # just the locale fix
+EOF
 }
 
 main() {
-  log "Bootstrap entrypoint reached."
-  log "This installer is still a scaffold."
-  log "Replace this stub with your Arch package, config, and service setup steps."
+  case "${1:-}" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+  esac
+
+  # Validate arguments before preflight so a typo fails instantly instead of
+  # after a sudo prompt.
+  local phases=("${ALL_PHASES[@]}")
+  local phase
+  if (( $# > 0 )); then
+    phases=("$@")
+    for phase in "${phases[@]}"; do
+      declare -F "$phase" >/dev/null || die "unknown phase: $phase"
+    done
+  fi
+
+  preflight
+
+  for phase in "${phases[@]}"; do
+    "$phase"
+  done
+
+  finish
 }
 
 main "$@"
