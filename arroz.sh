@@ -67,7 +67,7 @@ PKGS_DESKTOP=(
 )
 
 PKGS_CLI=(
-  yazi chafa duf procs git-delta oxker tuicr
+  yazi chafa duf procs git-delta oxker-bin tuicr
   7zip
 )
 
@@ -92,7 +92,9 @@ PKGS_DOCS=(
 PKGS_DEV=(
   dotnet-sdk-10.0
   azure-cli
-  googleworkspace-cli
+  rider
+  mono
+  msbuild
   # herdr is in quattro's omarchy-base.packages — already installed.
 )
 
@@ -474,6 +476,24 @@ apply_dotfiles() {
   chezmoi init --apply "$repo"
 }
 
+configure_nvim_plugins() {
+  # LazyVim installs plugins on first launch, which turns "open an editor"
+  # into a multi-minute wait the first time. Pre-sync them headlessly instead.
+  # `Lazy sync` covers install + update + clean (drops anything not in the
+  # config's spec, including whatever omarchy-nvim's old plugin dir left
+  # behind) in one pass.
+  cmd_present nvim || { warn "nvim not found; skipping LazyVim plugin sync"; return; }
+
+  [[ -f ~/.config/nvim/lua/config/options.lua ]] || {
+    warn "~/.config/nvim not set up yet; skipping LazyVim plugin sync (run apply_dotfiles first)"
+    return
+  }
+
+  log "Syncing LazyVim plugins (install + clean, headless)"
+  timeout 300 nvim --headless "+Lazy! sync" +qa ||
+    warn "LazyVim headless sync failed or timed out; open nvim once by hand to finish"
+}
+
 enable_services() {
   # Only services Omarchy does not already enable. Everything hardware, boot
   # and snapshot related is already handled by the ISO.
@@ -577,6 +597,7 @@ ALL_PHASES=(
   remove_omarchy_defaults
   configure_shell
   apply_dotfiles
+  configure_nvim_plugins
   enable_services
 )
 
