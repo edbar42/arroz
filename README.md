@@ -1,6 +1,6 @@
 # arroz
 
-Bootstrap script for a custom Arch Linux rice.
+Bootstrap script for a custom Arch Linux rice on top of Omarchy.
 
 After this repository is pushed to GitHub, the workflow in `.github/workflows/deploy-pages.yml` publishes the installer to GitHub Pages at:
 
