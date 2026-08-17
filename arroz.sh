@@ -86,7 +86,7 @@ PKGS_APPS=(
 )
 
 PKGS_DOCS=(
-  zathura zathura-pdf-mupdf zathura-cb zathura-djvu zathura-ps
+  zathura zathura-pdf-mupdf zathura-cb zathura-djvu zathura-ps obsidian
 )
 
 PKGS_DEV=(
@@ -130,12 +130,15 @@ PACKAGES=(
 # wiremix, gnome-calculator. The quickshell rewrite dropped the bar,
 # notification daemon and launcher; the rest were retired earlier.
 OMARCHY_UNWANTED=(
+  1password
   omarchy-nvim                    # own neovim config via chezmoi
   libreoffice-fresh               # onlyoffice
   kdenlive pinta xournalpp evince
   gnome-disk-utility sushi
   lazygit lazydocker
   localsend aether hyprsunset
+  alacritty
+  omacut
 )
 
 # Omarchy's own small apps, plus its default terminal. Not removed by default.
