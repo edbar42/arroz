@@ -64,11 +64,12 @@ PKGS_DESKTOP=(
   nwg-look
   python-pywal16
   keyd              # capslock -> esc/meta, see configure_keyd
+  hyprlock
 )
 
 PKGS_CLI=(
   yazi chafa duf procs git-delta oxker-bin tuicr
-  7zip
+  7zip github-cli
 )
 
 PKGS_APPS=(
@@ -83,6 +84,7 @@ PKGS_APPS=(
   steam
   syncthing
   chezmoi
+  qbittorrent
 )
 
 PKGS_DOCS=(
@@ -95,6 +97,7 @@ PKGS_DEV=(
   rider
   mono
   msbuild
+  t3code-bin
   # herdr is in quattro's omarchy-base.packages — already installed.
 )
 
@@ -126,9 +129,9 @@ PACKAGES=(
 #     --jq '.content' | base64 -d | grep -v '^#\|^$' | sort
 #
 # Notably absent from quattro, so NOT worth listing: waybar, mako, walker,
-# omarchy-walker, alacritty, spotify, typora, 1password, impala, bluetui,
-# wiremix, gnome-calculator. The quickshell rewrite dropped the bar,
-# notification daemon and launcher; the rest were retired earlier.
+# omarchy-walker, impala, bluetui, wiremix, gnome-calculator. The quickshell
+# rewrite dropped the bar, notification daemon and launcher; the rest were
+# retired earlier.
 OMARCHY_UNWANTED=(
   1password
   omarchy-nvim                    # own neovim config via chezmoi
@@ -139,6 +142,8 @@ OMARCHY_UNWANTED=(
   localsend aether hyprsunset
   alacritty
   omacut
+  # Not Omarchy defaults — manually installed at some point, no longer wanted.
+  1password-cli spotify typora
 )
 
 # Omarchy's own small apps, plus its default terminal. Not removed by default.
@@ -423,17 +428,14 @@ remove_omarchy_defaults() {
     warn "some packages could not be removed (likely still depended on); continuing"
   }
 
-  # Omarchy generates chromium --app= launchers for its web apps. Nothing here
-  # uses them, and they clutter every launcher and menu.
-  local webapps
-  mapfile -t webapps < <(
-    grep -ls 'chromium.*--app=' ~/.local/share/applications/*.desktop 2>/dev/null || true
-  )
-  if (( ${#webapps[@]} > 0 )); then
-    log "Removing ${#webapps[@]} generated web app launchers"
-    rm -f "${webapps[@]}"
-    update-desktop-database ~/.local/share/applications 2>/dev/null || true
-  fi
+  # Omarchy preinstalls web apps (chromium --app= launchers) and TUI desktop
+  # entries. Nothing here uses them, and they clutter every launcher and menu.
+  # Both commands are idempotent — a no-op, not an error, when none are found.
+  log "Removing preinstalled web apps"
+  omarchy webapp remove all
+
+  log "Removing preinstalled TUIs"
+  omarchy tui remove all
 }
 
 configure_shell() {
