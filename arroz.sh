@@ -514,6 +514,22 @@ configure_nvim_plugins() {
     warn "LazyVim headless sync failed or timed out; open nvim once by hand to finish"
 }
 
+configure_yazi_plugins() {
+  # package.toml (from dotfiles) lists plugin deps by git rev; the plugins
+  # themselves are fetched into ~/.config/yazi/plugins, which .chezmoiignore
+  # deliberately excludes from tracking. Without this, yazi runs with the
+  # keymap's plugin bindings (e.g. smart-enter) pointing at nothing.
+  cmd_present ya || { warn "ya not found; skipping yazi plugin install"; return; }
+
+  [[ -f ~/.config/yazi/package.toml ]] || {
+    warn "~/.config/yazi/package.toml not found; skipping (run apply_dotfiles first)"
+    return
+  }
+
+  log "Installing yazi plugins from package.toml"
+  ya pkg install || warn "yazi plugin install failed; run 'ya pkg install' by hand"
+}
+
 configure_firewall() {
   # Omarchy enables ufw with a default-deny inbound policy, which blocks
   # Syncthing's listener outright — the daemon starts, finds no peers, and
@@ -664,6 +680,7 @@ ALL_PHASES=(
   configure_shell
   apply_dotfiles
   configure_nvim_plugins
+  configure_yazi_plugins
   enable_services
 )
 
