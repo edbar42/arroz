@@ -9,7 +9,10 @@
 #
 # Idempotent. Safe to re-run; every phase checks before it acts.
 #
-#   curl -fsSL https://edbar42.github.io/arroz/arroz.sh | bash
+#   bash <(curl -fsSL https://edbar42.github.io/arroz/arroz.sh)
+#
+# Not `curl … | bash`: that makes the script its own stdin, and chsh's PAM
+# auth then reads the remaining script text as a password.
 #
 # Phases can be run individually:
 #
@@ -449,8 +452,18 @@ configure_shell() {
 
   [[ -x $LOGIN_SHELL ]] || die "$LOGIN_SHELL not found — did the package phase run?"
 
+  # chsh refuses any shell missing from /etc/shells, even when run through sudo.
+  grep -qxF "$LOGIN_SHELL" /etc/shells 2>/dev/null ||
+    die "$LOGIN_SHELL is not listed in /etc/shells"
+
   log "Changing login shell to $LOGIN_SHELL"
-  chsh -s "$LOGIN_SHELL"
+  # Run through sudo, not bare. Bare chsh authenticates the user through PAM,
+  # and PAM reads the password from stdin — which under `curl … | bash` is the
+  # script source. chsh consumes the rest of the script as the password and
+  # fails with "Authentication token manipulation error". sudo has no such
+  # problem: it opens /dev/tty directly, and preflight already cached the
+  # credential, so this needs no prompt at all.
+  sudo chsh -s "$LOGIN_SHELL" "$USER"
   needs_reboot "login shell changed to $LOGIN_SHELL; the current session still runs $current"
 }
 
@@ -467,8 +480,10 @@ apply_dotfiles() {
   # have yet. Restore ~/.ssh from the backup drive first, or this falls back to
   # HTTPS (fine for pulling, but pushing will need the key anyway).
   local repo
-  if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 |
-       grep -q 'successfully authenticated'; then
+  # </dev/null for the same reason as configure_shell: ssh forwards stdin to
+  # the remote, and under `curl … | bash` that is the rest of this script.
+  if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -T git@github.com \
+       </dev/null 2>&1 | grep -q 'successfully authenticated'; then
     repo="$DOTFILES_REPO_SSH"
     log "GitHub SSH auth works; using $repo"
   else
@@ -495,8 +510,53 @@ configure_nvim_plugins() {
   }
 
   log "Syncing LazyVim plugins (install + clean, headless)"
-  timeout 300 nvim --headless "+Lazy! sync" +qa ||
+  timeout 300 nvim --headless "+Lazy! sync" +qa </dev/null ||
     warn "LazyVim headless sync failed or timed out; open nvim once by hand to finish"
+}
+
+configure_firewall() {
+  # Omarchy enables ufw with a default-deny inbound policy, which blocks
+  # Syncthing's listener outright — the daemon starts, finds no peers, and
+  # reports "Disconnected" forever with nothing in its own log to explain it.
+  cmd_present ufw || { warn "ufw not installed; skipping firewall rules"; return; }
+
+  # Arch's syncthing package ships no ufw app profile (Debian's does), so the
+  # `ufw allow syncthing` form has nothing to resolve. Write the profile rather
+  # than scattering bare port numbers: `ufw status` then names the rules.
+  local profile=/etc/ufw/applications.d/syncthing
+
+  if [[ ! -f $profile ]]; then
+    log "Writing ufw application profile $profile"
+    sudo mkdir -p /etc/ufw/applications.d
+    sudo tee "$profile" >/dev/null <<'EOF'
+[syncthing]
+title=Syncthing
+description=Syncthing sync protocol and local discovery
+ports=22000/tcp|22000/udp|21027/udp
+
+[syncthing-gui]
+title=Syncthing GUI
+description=Syncthing web administration interface
+ports=8384/tcp
+EOF
+    sudo ufw app update all >/dev/null 2>&1 || true
+  fi
+
+  local app
+  for app in syncthing syncthing-gui; do
+    if sudo ufw status | grep -q "^$app "; then
+      log "ufw rule for $app already present"
+    else
+      log "Allowing $app through ufw"
+      sudo ufw allow "$app"
+    fi
+  done
+
+  # 8384 only matters if the GUI has been repointed off localhost. Left open
+  # regardless because it was asked for, but it is a no-op on a stock config.
+  if grep -q '127\.0\.0\.1:8384' ~/.local/state/syncthing/config.xml 2>/dev/null; then
+    log "Syncthing GUI still bound to localhost; the syncthing-gui rule is inert until that changes"
+  fi
 }
 
 enable_services() {
@@ -600,6 +660,7 @@ ALL_PHASES=(
   configure_background_renderer
   install_packages
   remove_omarchy_defaults
+  configure_firewall
   configure_shell
   apply_dotfiles
   configure_nvim_plugins
