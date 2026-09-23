@@ -72,7 +72,7 @@ PKGS_DESKTOP=(
 
 PKGS_CLI=(
   yazi chafa duf procs git-delta oxker-bin tuicr
-  7zip github-cli
+  7zip github-cli smartmontools nvme-cli
 )
 
 PKGS_APPS=(
