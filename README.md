@@ -61,6 +61,7 @@ With no arguments every phase runs in order. Named phases run just those:
 | `configure_shell` | Sets the login shell to zsh. |
 | `apply_dotfiles` | `chezmoi init --apply` from the dotfiles repo, over SSH when a working key is present and HTTPS otherwise. |
 | `configure_nvim_plugins` | Headless `Lazy! sync`, so the first `nvim` launch isn't a multi-minute wait. |
+| `configure_docker` | Enables rootless Docker as the default context, enables user lingering, and disables the system daemon/socket after verification. Refuses to interrupt running system containers; existing data is retained. |
 | `enable_services` | `keyd` and `mullvad-daemon`. Syncthing is left disabled on purpose. |
 
 Options: `--reboot` never asks, `--no-reboot` never reboots, `-h` prints usage.
@@ -94,3 +95,16 @@ restored machine.
 2. Restore `~/.ssh` from the backup drive, then
    `chezmoi git remote set-url origin git@github.com:edbar42/dotfiles`.
 3. Restore `~/personal`, then `systemctl --user enable --now syncthing.service`.
+
+## Docker and shell history
+
+Atuin is included in the shell packages. Docker uses `docker-rootless-extras`
+from the AUR with RootlessKit and slirp4netns. Run `./arroz.sh configure_docker`
+after installing the packages to configure it independently.
+
+Existing rootful images, containers and volumes do not automatically appear in
+the rootless daemon. Stop and migrate existing workloads first; recreate Compose
+projects with `docker --context rootless compose`, checking bind-mount ownership.
+The installer preserves `/var/lib/docker` for rollback. It does not add users to
+the root-equivalent `docker` group. Docker-aware tools should use the `rootless`
+context; tools that require a socket can use `/run/user/$(id -u)/docker.sock`.

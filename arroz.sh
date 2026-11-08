@@ -49,7 +49,7 @@ LOGIN_SHELL="/bin/zsh"
 PKGS_SHELL=(
   zsh zsh-autocomplete zsh-autosuggestions zsh-completions
   zsh-syntax-highlighting zsh-vi-mode
-  keychain
+  keychain atuin
   # starship is in quattro's omarchy-base.packages — already installed.
 )
 
@@ -95,6 +95,7 @@ PKGS_DOCS=(
 )
 
 PKGS_DEV=(
+  docker-rootless-extras rootlesskit slirp4netns
   dotnet-sdk-10.0
   azure-cli
   rider
@@ -575,6 +576,60 @@ EOF
   fi
 }
 
+configure_docker() {
+  cmd_present dockerd-rootless.sh || die "install docker-rootless-extras first (install_packages)"
+  [[ -z ${DOCKER_HOST:-} && -z ${DOCKER_CONTEXT:-} ]] ||
+    die "unset DOCKER_HOST and DOCKER_CONTEXT before configuring rootless Docker"
+
+  # Never interrupt existing workloads during an ordinary installer rerun.
+  if systemctl is-active --quiet docker.service; then
+    [[ -z $(sudo docker -H unix:///run/docker.sock ps -q) ]] ||
+      die "stop/migrate system Docker containers before running configure_docker"
+  fi
+
+  # Allocate a non-overlapping range shared by subordinate UID/GID mappings.
+  local file start
+  start=$(python - <<'PYMAP'
+from pathlib import Path
+end = 100000
+for name in ('/etc/subuid', '/etc/subgid'):
+    p = Path(name)
+    if p.exists():
+        for line in p.read_text().splitlines():
+            fields = line.split(':')
+            if len(fields) == 3:
+                end = max(end, int(fields[1]) + int(fields[2]))
+print(end)
+PYMAP
+)
+  for file in /etc/subuid /etc/subgid; do
+    if ! awk -F: -v user="$USER" '$1 == user && $3 >= 65536 {found=1} END {exit !found}' "$file" 2>/dev/null; then
+      if [[ $file == /etc/subuid ]]; then
+        sudo usermod --add-subuids "$start-$((start + 65535))" "$USER"
+      else
+        sudo usermod --add-subgids "$start-$((start + 65535))" "$USER"
+      fi
+    fi
+  done
+
+  systemctl --user enable --now docker.service
+  if docker context inspect rootless >/dev/null 2>&1; then
+    docker context update rootless --docker "host=unix:///run/user/$(id -u)/docker.sock"
+  else
+    docker context create rootless --docker "host=unix:///run/user/$(id -u)/docker.sock"
+  fi
+  docker --context rootless info --format '{{json .SecurityOptions}}' | grep -q rootless ||
+    die "rootless Docker failed verification; system Docker left unchanged"
+  sudo loginctl enable-linger "$USER"
+  sudo systemctl disable --now docker.service docker.socket
+  if id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
+    sudo gpasswd -d "$USER" docker
+    needs_reboot "removed root-equivalent Docker group membership; old sessions retain it"
+  fi
+  docker context use rootless
+  log "Rootless Docker is the default; system Docker data is preserved, not migrated"
+}
+
 enable_services() {
   # Only services Omarchy does not already enable. Everything hardware, boot
   # and snapshot related is already handled by the ISO.
@@ -682,6 +737,7 @@ ALL_PHASES=(
   configure_nvim_plugins
   configure_yazi_plugins
   enable_services
+  configure_docker
 )
 
 usage() {
