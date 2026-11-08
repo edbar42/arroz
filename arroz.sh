@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# arroz — post-install setup for a machine installed with the Omarchy ISO.
+#ck arroz — post-install setup for a machine installed with the Omarchy ISO.
 #
 # The ISO owns the parts worth not rewriting: disk layout, LUKS, btrfs
 # subvolumes, limine, UKI generation, snapper, and the hardware quirks under
@@ -88,6 +88,7 @@ PKGS_APPS=(
   syncthing
   chezmoi
   qbittorrent
+  signal-desktop
 )
 
 PKGS_DOCS=(
@@ -101,6 +102,7 @@ PKGS_DEV=(
   rider
   mono
   msbuild
+  neovim
   t3code-bin
   # herdr is in quattro's omarchy-base.packages — already installed.
 )
